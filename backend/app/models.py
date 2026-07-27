@@ -1,0 +1,93 @@
+import datetime
+from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Boolean, Float
+from sqlalchemy.orm import relationship
+from app.database import Base
+
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String, unique=True, index=True, nullable=False)
+    hashed_password = Column(String, nullable=False)
+    role = Column(String, default="customer", nullable=False)  # "admin" | "customer"
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    conversations = relationship("Conversation", back_populates="user", cascade="all, delete-orphan")
+    tickets = relationship("Ticket", back_populates="user", cascade="all, delete-orphan")
+    documents = relationship("KBDocument", back_populates="uploaded_by")
+
+class Conversation(Base):
+    __tablename__ = "conversations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    title = Column(String, default="New Support Chat")
+    status = Column(String, default="open", nullable=False)  # "open" | "resolved" | "escalated"
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
+    user = relationship("User", back_populates="conversations")
+    messages = relationship("Message", back_populates="conversation", cascade="all, delete-orphan", order_by="Message.created_at")
+    tickets = relationship("Ticket", back_populates="conversation", cascade="all, delete-orphan")
+
+class Message(Base):
+    __tablename__ = "messages"
+
+    id = Column(Integer, primary_key=True, index=True)
+    conversation_id = Column(Integer, ForeignKey("conversations.id"), nullable=False)
+    role = Column(String, nullable=False)  # "user" | "assistant" | "system"
+    content = Column(Text, nullable=False)
+    
+    # Routing & reasoning metrics
+    intent = Column(String, nullable=True)
+    intent_confidence = Column(Float, nullable=True)
+    rag_grounded = Column(Boolean, default=False)
+    retrieval_score = Column(Float, nullable=True)
+    escalated = Column(Boolean, default=False)
+    escalation_reason = Column(String, nullable=True)
+    response_time_ms = Column(Integer, nullable=True)
+    
+    # Feedback (-1 = thumbs down, 1 = thumbs up, None = unrated)
+    feedback = Column(Integer, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    conversation = relationship("Conversation", back_populates="messages")
+
+class KBDocument(Base):
+    __tablename__ = "kb_documents"
+
+    id = Column(Integer, primary_key=True, index=True)
+    filename = Column(String, nullable=False)
+    file_type = Column(String, nullable=False)
+    chunk_count = Column(Integer, default=0)
+    uploaded_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    uploaded_by = relationship("User", back_populates="documents")
+    chunks = relationship("KBChunk", back_populates="document", cascade="all, delete-orphan")
+
+class KBChunk(Base):
+    __tablename__ = "kb_chunks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    document_id = Column(Integer, ForeignKey("kb_documents.id"), nullable=False)
+    chunk_index = Column(Integer, nullable=False)
+    content = Column(Text, nullable=False)
+
+    document = relationship("KBDocument", back_populates="chunks")
+
+class Ticket(Base):
+    __tablename__ = "tickets"
+
+    id = Column(Integer, primary_key=True, index=True)
+    conversation_id = Column(Integer, ForeignKey("conversations.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    intent = Column(String, nullable=False)
+    priority = Column(String, default="medium")  # "low" | "medium" | "high" | "urgent"
+    reason = Column(String, nullable=False)
+    status = Column(String, default="open")  # "open" | "in_progress" | "closed"
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
+    conversation = relationship("Conversation", back_populates="tickets")
+    user = relationship("User", back_populates="tickets")
