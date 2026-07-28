@@ -108,7 +108,7 @@ def run_e2e_tests():
     print("[PASS] 12. Ticket Resolution & Conversation Lifecycle")
 
     print("=" * 70)
-    print("🎉 ALL 12 END-TO-END INTEGRATION TESTS PASSED WITH 100% SUCCESS!")
+    print("SUCCESS: ALL 12 END-TO-END INTEGRATION TESTS PASSED WITH 100% SUCCESS!")
     print("=" * 70)
 
 if __name__ == "__main__":
