@@ -7,13 +7,14 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440  # 24 hours
 
-    LLM_PROVIDER: str = "template"  # template | ollama | anthropic | openai
+    LLM_PROVIDER: str = "template"  # template | ollama | anthropic | openai | gemini
     OLLAMA_BASE_URL: str = "http://localhost:11434"
     OLLAMA_MODEL: str = "llama3.2"
 
     ANTHROPIC_API_KEY: str = ""
     OPENAI_API_KEY: str = ""
     OPENAI_MODEL: str = "gpt-4o-mini"
+    GEMINI_API_KEY: str = ""
 
     RAG_CONFIDENCE_THRESHOLD: float = 0.15
 

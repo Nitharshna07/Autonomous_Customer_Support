@@ -63,10 +63,10 @@ class TemplateProvider(BaseLLMProvider):
         if any(h in user_msg_lower for h in ["help", "helps", "can you do", "what can you", "how to use", "support"]):
             return (
                 "I can assist you with a variety of support topics, including:\n\n"
-                "• 💳 **Billing & Payments:** Inquiries about subscription plans, invoices, charges, or refunds.\n"
-                "• ⚙️ **Technical Support:** Troubleshooting app issues, crashes, errors, or configuration problems.\n"
-                "• 👤 **Account Settings:** Managing password resets, profile updates, and dashboard access.\n"
-                "• 📚 **Knowledge Base:** Fetching relevant answers from uploaded support guides and policy documents.\n\n"
+                "• **Billing & Payments:** Inquiries about subscription plans, invoices, charges, or refunds.\n"
+                "• **Technical Support:** Troubleshooting app issues, crashes, errors, or configuration problems.\n"
+                "• **Account Settings:** Managing password resets, profile updates, and dashboard access.\n"
+                "• **Knowledge Base:** Fetching relevant answers from uploaded support guides and policy documents.\n\n"
                 "If your inquiry is urgent or requires human intervention, I will automatically escalate this chat and create a ticket for our support team."
             )
         
@@ -239,6 +239,58 @@ class OpenAIProvider(BaseLLMProvider):
             logger.error(f"OpenAI API error: {e}")
             return await TemplateProvider().generate_response(messages, context, intent, is_escalated, escalation_reason)
 
+class GeminiProvider(BaseLLMProvider):
+    async def generate_response(
+        self,
+        messages: List[Dict[str, str]],
+        context: Optional[str] = None,
+        intent: Optional[str] = None,
+        is_escalated: bool = False,
+        escalation_reason: Optional[str] = None
+    ) -> str:
+        if not settings.GEMINI_API_KEY:
+            return "[Error: GEMINI_API_KEY missing]. " + await TemplateProvider().generate_response(messages, context, intent, is_escalated, escalation_reason)
+        
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={settings.GEMINI_API_KEY}"
+        
+        system_instruction = SYSTEM_PROMPT
+        if context:
+            system_instruction += f"\n\nGrounding Knowledge Context:\n{context}"
+            
+        gemini_contents = []
+        for m in messages:
+            role = "user" if m["role"] == "user" else "model"
+            gemini_contents.append({
+                "role": role,
+                "parts": [{"text": m["content"]}]
+            })
+            
+        payload = {
+            "contents": gemini_contents,
+            "systemInstruction": {
+                "parts": [{"text": system_instruction}]
+            },
+            "generationConfig": {
+                "maxOutputTokens": 1024,
+                "temperature": 0.3
+            }
+        }
+        
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.post(url, json=payload)
+                resp.raise_for_status()
+                data = resp.json()
+                candidates = data.get("candidates", [])
+                if candidates:
+                    parts = candidates[0].get("content", {}).get("parts", [])
+                    if parts:
+                        return parts[0].get("text", "")
+                return "No response text received from Gemini."
+        except Exception as e:
+            logger.error(f"Gemini API error: {e}")
+            return await TemplateProvider().generate_response(messages, context, intent, is_escalated, escalation_reason)
+
 def get_llm_provider() -> BaseLLMProvider:
     provider_type = settings.LLM_PROVIDER.lower().strip()
     if provider_type == "ollama":
@@ -247,5 +299,7 @@ def get_llm_provider() -> BaseLLMProvider:
         return AnthropicProvider()
     elif provider_type == "openai":
         return OpenAIProvider()
+    elif provider_type == "gemini":
+        return GeminiProvider()
     else:
         return TemplateProvider()
