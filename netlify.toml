@@ -5,7 +5,7 @@
 
 [build.environment]
   VITE_GOOGLE_CLIENT_ID = "1076748850806-5ad41n5ncdkihpg742i37r7t66nt8iln.apps.googleusercontent.com"
-  VITE_API_BASE_URL = "https://autonomous-support-copilot-backend.onrender.com"
+  VITE_API_BASE_URL = "https://autonomous-customer-support.onrender.com"
 
 [[redirects]]
   from = "/*"
