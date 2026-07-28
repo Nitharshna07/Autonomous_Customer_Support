@@ -1,6 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.database import engine, Base
+from app.database import engine, Base, SessionLocal
+from app.models import User
+from app.auth import hash_password
 from app.router_auth import router as auth_router
 from app.router_chat import router as chat_router
 from app.router_kb import router as kb_router
@@ -8,6 +10,29 @@ from app.router_admin import router as admin_router
 
 # Create database tables automatically on startup
 Base.metadata.create_all(bind=engine)
+
+def seed_admin():
+    db = SessionLocal()
+    try:
+        admin_email = "admin@supportcopilot.com"
+        admin = db.query(User).filter(User.email == admin_email).first()
+        if not admin:
+            # Hash password with bcrypt
+            hashed_pwd = hash_password("AdminPassword123!")
+            new_admin = User(
+                email=admin_email,
+                hashed_password=hashed_pwd,
+                role="admin"
+            )
+            db.add(new_admin)
+            db.commit()
+            print("Successfully seeded admin user.")
+    except Exception as e:
+        print(f"Error seeding admin: {e}")
+    finally:
+        db.close()
+
+seed_admin()
 
 app = FastAPI(
     title="Autonomous Customer Support Copilot API",
