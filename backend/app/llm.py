@@ -35,6 +35,7 @@ class TemplateProvider(BaseLLMProvider):
         escalation_reason: Optional[str] = None
     ) -> str:
         user_msg = messages[-1]["content"] if messages else ""
+        user_msg_lower = user_msg.lower().strip()
 
         if is_escalated:
             reason_text = f" (Reason: {escalation_reason})" if escalation_reason else ""
@@ -51,19 +52,58 @@ class TemplateProvider(BaseLLMProvider):
                 f"I hope this helps! Please let me know if you need further clarification."
             )
         
+        # 1. Greetings
+        if any(greet in user_msg_lower for greet in ["hello", "hi", "hey", "greetings", "good morning", "good afternoon"]):
+            return (
+                "Hello! Welcome to Support Copilot. I'm your AI assistant, here to answer your questions "
+                "or assist with troubleshooting. How can I help you today?"
+            )
+        
+        # 2. Help/Capabilities
+        if any(h in user_msg_lower for h in ["help", "helps", "can you do", "what can you", "how to use", "support"]):
+            return (
+                "I can assist you with a variety of support topics, including:\n\n"
+                "• 💳 **Billing & Payments:** Inquiries about subscription plans, invoices, charges, or refunds.\n"
+                "• ⚙️ **Technical Support:** Troubleshooting app issues, crashes, errors, or configuration problems.\n"
+                "• 👤 **Account Settings:** Managing password resets, profile updates, and dashboard access.\n"
+                "• 📚 **Knowledge Base:** Fetching relevant answers from uploaded support guides and policy documents.\n\n"
+                "If your inquiry is urgent or requires human intervention, I will automatically escalate this chat and create a ticket for our support team."
+            )
+        
         # Fallback canned responses based on intent keyword
-        if intent == "billing":
-            return "For billing inquiries, invoices, or refund requests, please check your Account Settings under 'Billing'. If you require further assistance, our team is here to help."
-        elif intent == "technical":
-            return "For technical issues, please ensure your application is updated to the latest version and clear your browser cache. If the issue persists, let us know your system specs."
-        elif intent == "account":
-            return "You can update your profile, change passwords, and manage notification preferences directly from your Profile Dashboard."
+        if intent == "billing" or any(k in user_msg_lower for k in ["billing", "invoice", "charge", "payment", "refund", "subscription", "price"]):
+            return (
+                "For billing inquiries, subscription changes, or refund requests, please check your Account Settings "
+                "under the 'Billing & Subscriptions' section. You can view all past invoices and active plans there. "
+                "If you need an adjustment or a manual refund review, please let me know and I will escalate this to our billing team."
+            )
+        elif intent == "technical" or any(k in user_msg_lower for k in ["technical", "bug", "crash", "error", "failed", "not working", "slow", "down", "issue"]):
+            return (
+                "For technical issues or errors, please ensure your application is running the latest version and try "
+                "clearing your browser cache. If you are experiencing a persistent bug, please describe the steps to reproduce it "
+                "or any error codes displayed so we can troubleshoot it effectively."
+            )
+        elif intent == "account" or any(k in user_msg_lower for k in ["account", "profile", "password", "username", "login", "reset password"]):
+            return (
+                "You can manage your account settings, change your password, update contact preferences, or customize your dashboard "
+                "directly within your User Profile tab. If you are having trouble logging in or resetting your credentials, please let me know."
+            )
         elif intent == "complaint":
-            return "We sincerely apologize for any frustration caused. I have logged your issue and notified our support leads to look into this immediately."
-        elif intent == "urgent":
-            return "Your urgent request has been prioritized. A support specialist is being notified."
+            return (
+                "We sincerely apologize for any frustration or inconvenience this situation has caused. I have logged your concerns "
+                "and flagged this conversation for direct manager review. A support lead will reach out to you shortly to resolve this."
+            )
+        elif intent == "urgent" or any(k in user_msg_lower for k in ["urgent", "emergency", "immediate", "asap"]):
+            return (
+                "Your request has been classified as urgent. I am prioritizing this conversation and notifying a support specialist "
+                "right away. Please provide any additional context or account details so they can assist you immediately upon connection."
+            )
         else:
-            return f"Thank you for contacting support! Regarding '{user_msg}', our automated assistant has processed your request. Please let us know if you need anything else."
+            return (
+                f"Thank you for reaching out. I've noted your message: '{user_msg}'. "
+                f"Could you please provide a few more details or clarify if this relates to billing, account settings, or technical support? "
+                f"I'll do my best to help, or I can connect you with a human agent if needed."
+            )
 
 class OllamaProvider(BaseLLMProvider):
     async def generate_response(
