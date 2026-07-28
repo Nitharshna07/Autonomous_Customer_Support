@@ -1,5 +1,6 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { GoogleOAuthProvider } from '@react-oauth/google';
 import { AuthProvider } from './context/AuthContext';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { Navbar } from './components/Navbar';
@@ -9,10 +10,13 @@ import { ChatPage } from './pages/ChatPage';
 import { AdminDashboard } from './pages/AdminDashboard';
 import { AdminKBPage } from './pages/AdminKBPage';
 
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || "YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com";
+
 function App() {
   return (
-    <BrowserRouter>
-      <AuthProvider>
+    <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
+      <BrowserRouter>
+        <AuthProvider>
         <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', background: '#090d16' }}>
           <Navbar />
           <div style={{ flex: 1 }}>
@@ -53,6 +57,7 @@ function App() {
         </div>
       </AuthProvider>
     </BrowserRouter>
+  </GoogleOAuthProvider>
   );
 }
 

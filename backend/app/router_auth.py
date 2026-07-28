@@ -1,8 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+from google.oauth2 import id_token
+from google.auth.transport import requests as google_requests
+
 from app.database import get_db
 from app.models import User
-from app.schemas import SignupRequest, LoginRequest, TokenResponse, UserResponse
+from app.schemas import SignupRequest, LoginRequest, GoogleLoginRequest, TokenResponse, UserResponse
 from app.auth import hash_password, verify_password, create_access_token, get_current_user
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
@@ -39,6 +42,36 @@ def login(req: LoginRequest, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == req.email.strip().lower()).first()
     if not user or not verify_password(req.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Invalid email or password")
+
+    token = create_access_token({"sub": user.email})
+    return TokenResponse(
+        access_token=token,
+        token_type="bearer",
+        user=UserResponse.model_validate(user)
+    )
+
+@router.post("/google", response_model=TokenResponse)
+def google_login(req: GoogleLoginRequest, db: Session = Depends(get_db)):
+    try:
+        id_info = id_token.verify_oauth2_token(req.credential, google_requests.Request())
+        email = id_info.get("email")
+        if not email:
+            raise HTTPException(status_code=400, detail="Google token payload missing email")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid Google token: {str(e)}")
+
+    user = db.query(User).filter(User.email == email.strip().lower()).first()
+    if not user:
+        total_users = db.query(User).count()
+        role = "admin" if total_users == 0 else "customer"
+        user = User(
+            email=email.strip().lower(),
+            hashed_password=None,
+            role=role
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
 
     token = create_access_token({"sub": user.email})
     return TokenResponse(

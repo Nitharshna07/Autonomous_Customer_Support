@@ -15,20 +15,25 @@ def run_tests():
     assert r.status_code == 200, f"Root endpoint failed: {r.text}"
     print("[OK] Health Check Passed")
 
-    # 2. Signup Admin User
-    admin_signup = {
+    # 2. Signup or Login Admin User
+    admin_credentials = {
         "email": "admin@supportcopilot.com",
         "password": "AdminPassword123!"
     }
-    r = requests.post(f"{BASE_URL}/auth/signup", json=admin_signup)
-    assert r.status_code == 200, f"Admin signup failed: {r.text}"
+    r = requests.post(f"{BASE_URL}/auth/signup", json=admin_credentials)
+    if r.status_code != 200:
+        # User exists, login instead
+        r = requests.post(f"{BASE_URL}/auth/login", json=admin_credentials)
+        assert r.status_code == 200, f"Admin login failed: {r.text}"
+    
     admin_token = r.json()["access_token"]
-    assert r.json()["user"]["role"] == "admin", "First user should be admin"
-    print("[OK] Admin Signup & Role Verification Passed")
-    # ...
+    assert r.json()["user"]["role"] == "admin", "User role should be admin"
+    print(f"[OK] Admin Auth & Role Verification Passed (User: {r.json()['user']['email']}, Role: {r.json()['user']['role']})")
+
     # 3. Signup Customer User
+    ts = int(time.time())
     customer_signup = {
-        "email": "customer@supportcopilot.com",
+        "email": f"customer_{ts}@supportcopilot.com",
         "password": "CustomerPassword123!"
     }
     r = requests.post(f"{BASE_URL}/auth/signup", json=customer_signup)
@@ -38,7 +43,7 @@ def run_tests():
     print("[OK] Customer Signup & Role Verification Passed")
 
     # 4. Login Check
-    r = requests.post(f"{BASE_URL}/auth/login", json=admin_signup)
+    r = requests.post(f"{BASE_URL}/auth/login", json=admin_credentials)
     assert r.status_code == 200, f"Login failed: {r.text}"
     print("[OK] Authentication Login Passed")
 

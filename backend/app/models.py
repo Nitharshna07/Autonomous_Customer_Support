@@ -8,7 +8,7 @@ class User(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     email = Column(String, unique=True, index=True, nullable=False)
-    hashed_password = Column(String, nullable=False)
+    hashed_password = Column(String, nullable=True)  # Nullable for Google Auth users
     role = Column(String, default="customer", nullable=False)  # "admin" | "customer"
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
