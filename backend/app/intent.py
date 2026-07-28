@@ -62,12 +62,35 @@ def classify_intent(text: str) -> Tuple[str, float]:
 
     return best_intent, round(confidence, 2)
 
+def detect_anger_frustration(text: str) -> bool:
+    """
+    Detect user anger or frustration based on keywords and capitalization indicators.
+    """
+    text_lower = text.lower()
+    anger_keywords = [
+        "angry", "frustrated", "annoyed", "pissed", "mad", "hate", "scam", "useless",
+        "crap", "terrible", "horrible", "awful", "worst", "unacceptable", "sue", "lawsuit",
+        "disappointed", "ridiculous", "refund immediately", "waste of money", "waste of time"
+    ]
+    if any(kw in text_lower for kw in anger_keywords):
+        return True
+    
+    # Check for all-caps expressions containing substantial words (e.g. "I WANT A REFUND NOW")
+    words = re.findall(r'\b[A-Z]+\b', text)
+    if len(words) >= 3 and len(text) > 10:
+        all_caps_words = [w for w in words if len(w) > 1]
+        if len(all_caps_words) >= 3:
+            return True
+            
+    return False
+
 def should_escalate(
     intent: str,
     intent_confidence: float,
     rag_score: float,
     rag_threshold: float,
-    has_kb_docs: bool
+    has_kb_docs: bool,
+    is_angry: bool = False
 ) -> Tuple[bool, str]:
     """
     Determine if conversation should auto-escalate to human agent.
@@ -75,6 +98,13 @@ def should_escalate(
     """
     if intent in HIGH_PRIORITY_INTENTS:
         return True, f"High priority customer intent detected ({intent.upper()})"
+
+    if is_angry:
+        return True, "Frustrated or angry customer sentiment detected"
+
+    if intent == "general":
+        # General conversational chats/greetings don't need RAG grounding or escalation on low RAG score
+        return False, ""
 
     if has_kb_docs and rag_score < rag_threshold:
         return True, f"Low RAG knowledge base retrieval confidence ({rag_score:.2f} < threshold {rag_threshold})"

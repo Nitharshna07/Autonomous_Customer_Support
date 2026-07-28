@@ -1,18 +1,70 @@
 import httpx
 import logging
+import random
 from typing import List, Dict, Optional
 from app.config import settings
 
 logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = """You are an Autonomous Customer Support AI Copilot for our platform.
-Your goal is to assist customers accurately, politely, and concisely.
+Your goal is to assist customers accurately, politely, and concisely."""
 
-Rules:
-1. Base your answer strictly on the Grounding Knowledge Context provided below if relevant.
-2. If no Grounding Knowledge Context is provided or if the context does not contain enough information to answer the user's question, state honestly that you do not have sufficient information in the knowledge base and offer to connect them with a human agent.
-3. Be professional, helpful, and clear.
+GROUNDED_RULES = """
+GROUNDING INSTRUCTIONS:
+1. Base your answer strictly on the Grounding Knowledge Context provided below.
+2. For EVERY claim, policy detail, or fact you state, you MUST explicitly cite the source document name (e.g., "[Source: billing_policy.txt]") from the grounding context. Do not cite if the context doesn't contain the document name.
+3. If no Grounding Knowledge Context is provided, or if the context does not contain enough information to answer the question, state clearly and honestly: "Based on our knowledge base, I am not certain about this information." and offer human escalation. Do not make up calculations, URLs, or policy limits.
 """
+
+INTENT_PROMPT_INSTRUCTIONS = {
+    "billing": (
+        "TONE & STRUCTURE INSTRUCTION: You are handling a billing/financial inquiry. Be extremely precise, "
+        "always prioritize numbers/dates/costs, and cite the exact document names and policy clauses "
+        "contained in the context. Do not make up or assume calculations or numbers."
+    ),
+    "technical": (
+        "TONE & STRUCTURE INSTRUCTION: You are handling a technical issue. Provide clear, step-by-step "
+        "troubleshooting guidance. Assume the customer has basic technical literacy, and include specific "
+        "configuration paths, parameters, or error codes referenced in the grounding context."
+    ),
+    "complaint": (
+        "TONE & STRUCTURE INSTRUCTION: You are handling a customer complaint. Start with a brief, highly "
+        "empathetic opening line (e.g., apologizing for the frustration). Keep your response concise, "
+        "focus on direct solutions, and clearly outline the path to a human agent/escalation if they choose."
+    ),
+    "urgent": (
+        "TONE & STRUCTURE INSTRUCTION: You are handling an urgent inquiry. Be direct, highly concise, "
+        "apologize for the disruption, and guide them directly to the human escalation path."
+    ),
+    "account": (
+        "TONE & STRUCTURE INSTRUCTION: You are handling an account/profile settings issue. Provide clear, "
+        "secure guidance on updating settings, changing credentials, or navigating the account dashboard."
+    ),
+    "general": (
+        "TONE & STRUCTURE INSTRUCTION: Be professional, helpful, polite, and clear."
+    )
+}
+
+def get_system_prompt(intent: str, has_context: bool) -> str:
+    prompt = SYSTEM_PROMPT
+    if has_context:
+        prompt += "\n" + GROUNDED_RULES
+    else:
+        prompt += "\n\nGROUNDING INSTRUCTIONS:\nNo grounding knowledge base context is available for this query. State honestly that you do not have sufficient information in the knowledge base and suggest human handoff."
+    
+    intent_instruction = INTENT_PROMPT_INSTRUCTIONS.get(intent, INTENT_PROMPT_INSTRUCTIONS["general"])
+    prompt += "\n\n" + intent_instruction
+    
+    prompt += "\n\nANTI-REPETITION INSTRUCTIONS:\nAvoid starting with standard canned phrases like 'I understand your concern' or 'Thank you for reaching out'. Vary your sentence structures and rotate your opening sentences to sound natural, human, and fresh."
+    return prompt
+
+ROTATED_GREETINGS = [
+    "Hello! Welcome to Support Copilot. I'm your AI assistant, here to answer your questions or assist with troubleshooting. How can I help you today?",
+    "Hi there! Welcome to Support Copilot. What can I do for you today?",
+    "Greetings! I'm here to assist you with any questions or issues. How can I help you?",
+    "Hello! I'm your support assistant. What are we working on today?",
+    "Hi! Thanks for reaching out to Support Copilot. How can I be of assistance today?"
+]
 
 class BaseLLMProvider:
     async def generate_response(
@@ -54,10 +106,7 @@ class TemplateProvider(BaseLLMProvider):
         
         # 1. Greetings
         if any(greet in user_msg_lower for greet in ["hello", "hi", "hey", "greetings", "good morning", "good afternoon"]):
-            return (
-                "Hello! Welcome to Support Copilot. I'm your AI assistant, here to answer your questions "
-                "or assist with troubleshooting. How can I help you today?"
-            )
+            return random.choice(ROTATED_GREETINGS)
         
         # 2. Help/Capabilities
         if any(h in user_msg_lower for h in ["help", "helps", "can you do", "what can you", "how to use", "support"]):
@@ -72,38 +121,47 @@ class TemplateProvider(BaseLLMProvider):
         
         # Fallback canned responses based on intent keyword
         if intent == "billing" or any(k in user_msg_lower for k in ["billing", "invoice", "charge", "payment", "refund", "subscription", "price"]):
-            return (
-                "For billing inquiries, subscription changes, or refund requests, please check your Account Settings "
-                "under the 'Billing & Subscriptions' section. You can view all past invoices and active plans there. "
-                "If you need an adjustment or a manual refund review, please let me know and I will escalate this to our billing team."
-            )
+            billing_options = [
+                "For billing inquiries, subscription changes, or refund requests, please check your Account Settings under the 'Billing & Subscriptions' section. You can view all past invoices and active plans there. If you need an adjustment or a manual refund review, please let me know and I will escalate this to our billing team.",
+                "To manage your billing, billing details, and plans, please visit your Account Dashboard's Billing section. If you have an unexpected charge or need to request a refund, let me know and I can get a support representative to look into it.",
+                "Invoices, refund status, and plans are managed in your account dashboard under 'Billing'. Let me know if you need help with a specific transaction, and we can raise a ticket for our billing specialists."
+            ]
+            return random.choice(billing_options)
         elif intent == "technical" or any(k in user_msg_lower for k in ["technical", "bug", "crash", "error", "failed", "not working", "slow", "down", "issue"]):
-            return (
-                "For technical issues or errors, please ensure your application is running the latest version and try "
-                "clearing your browser cache. If you are experiencing a persistent bug, please describe the steps to reproduce it "
-                "or any error codes displayed so we can troubleshoot it effectively."
-            )
+            tech_options = [
+                "For technical issues or errors, please ensure your application is running the latest version and try clearing your browser cache. If you are experiencing a persistent bug, please describe the steps to reproduce it or any error codes displayed so we can troubleshoot it effectively.",
+                "If you are facing a crash or loading error, please check your internet connection, update the app, and clear cache. If that doesn't help, share the specific error message or screenshot details, and we can investigate further.",
+                "We recommend performing a hard reload and checking the app settings. If the technical issue continues, please provide the exact steps or API error codes, and we will get our engineering team to review it."
+            ]
+            return random.choice(tech_options)
         elif intent == "account" or any(k in user_msg_lower for k in ["account", "profile", "password", "username", "login", "reset password"]):
-            return (
-                "You can manage your account settings, change your password, update contact preferences, or customize your dashboard "
-                "directly within your User Profile tab. If you are having trouble logging in or resetting your credentials, please let me know."
-            )
+            account_options = [
+                "You can manage your account settings, change your password, update contact preferences, or customize your dashboard directly within your User Profile tab. If you are having trouble logging in or resetting your credentials, please let me know.",
+                "To update your profile settings, email notifications, or credentials, please navigate to your dashboard's Settings page. If you are locked out or need 2FA assistance, tell me and we can escalate this to account security.",
+                "Security settings, passwords, and profile details can be edited in your account profile. If you have trouble resetting your password or accessing your account, let me know so we can assist you."
+            ]
+            return random.choice(account_options)
         elif intent == "complaint":
-            return (
-                "We sincerely apologize for any frustration or inconvenience this situation has caused. I have logged your concerns "
-                "and flagged this conversation for direct manager review. A support lead will reach out to you shortly to resolve this."
-            )
+            complaint_options = [
+                "We sincerely apologize for any frustration or inconvenience this situation has caused. I have logged your concerns and flagged this conversation for direct manager review. A support lead will reach out to you shortly to resolve this.",
+                "I am very sorry to hear about your negative experience. I've recorded your complaint and sent it to our customer care manager immediately. A team member will prioritize getting in touch with you.",
+                "Please accept our apologies for the trouble. I have created a high-priority ticket for our manager to look into this right away. We will reach out shortly to ensure this is sorted out."
+            ]
+            return random.choice(complaint_options)
         elif intent == "urgent" or any(k in user_msg_lower for k in ["urgent", "emergency", "immediate", "asap"]):
-            return (
-                "Your request has been classified as urgent. I am prioritizing this conversation and notifying a support specialist "
-                "right away. Please provide any additional context or account details so they can assist you immediately upon connection."
-            )
+            urgent_options = [
+                "Your request has been classified as urgent. I am prioritizing this conversation and notifying a support specialist right away. Please provide any additional context or account details so they can assist you immediately upon connection.",
+                "I've flagged this conversation as urgent and notified the support queue. A support agent will review your issue immediately. Please stay tuned or leave any extra details here.",
+                "We are prioritizing your request. I am looping in an agent right now to address this. Please provide any account emails or invoice numbers to speed up the process."
+            ]
+            return random.choice(urgent_options)
         else:
-            return (
-                f"Thank you for reaching out. I've noted your message: '{user_msg}'. "
-                f"Could you please provide a few more details or clarify if this relates to billing, account settings, or technical support? "
-                f"I'll do my best to help, or I can connect you with a human agent if needed."
-            )
+            fallback_options = [
+                f"Thank you for reaching out. I've noted your message: '{user_msg}'. Could you please provide a few more details or clarify if this relates to billing, account settings, or technical support? I'll do my best to help, or I can connect you with a human agent if needed.",
+                f"Got it. Regarding '{user_msg}', could you share more details so I can find the best answer in our docs? Let me know if you would prefer to escalate to a human agent.",
+                f"Thanks for your message. I'm here to help with billing, technical issues, or account settings. Could you describe your problem in a bit more detail?"
+            ]
+            return random.choice(fallback_options)
 
 class OllamaProvider(BaseLLMProvider):
     async def generate_response(
@@ -116,7 +174,8 @@ class OllamaProvider(BaseLLMProvider):
     ) -> str:
         url = f"{settings.OLLAMA_BASE_URL.rstrip('/')}/api/chat"
         
-        prompt_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        sys_prompt = get_system_prompt(intent or "general", bool(context))
+        prompt_messages = [{"role": "system", "content": sys_prompt}]
         if context:
             prompt_messages.append({
                 "role": "system",
@@ -162,9 +221,9 @@ class AnthropicProvider(BaseLLMProvider):
             "content-type": "application/json"
         }
         
-        system_text = SYSTEM_PROMPT
+        sys_prompt = get_system_prompt(intent or "general", bool(context))
         if context:
-            system_text += f"\n\nGrounding Knowledge Context:\n{context}"
+            sys_prompt += f"\n\nGrounding Knowledge Context:\n{context}"
             
         formatted_messages = []
         for m in messages:
@@ -174,7 +233,7 @@ class AnthropicProvider(BaseLLMProvider):
         payload = {
             "model": "claude-3-5-sonnet-20240620",
             "max_tokens": 1024,
-            "system": system_text,
+            "system": sys_prompt,
             "messages": formatted_messages
         }
         
@@ -209,7 +268,8 @@ class OpenAIProvider(BaseLLMProvider):
             "Content-Type": "application/json"
         }
         
-        prompt_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        sys_prompt = get_system_prompt(intent or "general", bool(context))
+        prompt_messages = [{"role": "system", "content": sys_prompt}]
         if context:
             prompt_messages.append({
                 "role": "system",
@@ -253,9 +313,9 @@ class GeminiProvider(BaseLLMProvider):
         
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={settings.GEMINI_API_KEY}"
         
-        system_instruction = SYSTEM_PROMPT
+        sys_prompt = get_system_prompt(intent or "general", bool(context))
         if context:
-            system_instruction += f"\n\nGrounding Knowledge Context:\n{context}"
+            sys_prompt += f"\n\nGrounding Knowledge Context:\n{context}"
             
         gemini_contents = []
         for m in messages:
@@ -268,7 +328,7 @@ class GeminiProvider(BaseLLMProvider):
         payload = {
             "contents": gemini_contents,
             "systemInstruction": {
-                "parts": [{"text": system_instruction}]
+                "parts": [{"text": sys_prompt}]
             },
             "generationConfig": {
                 "maxOutputTokens": 1024,

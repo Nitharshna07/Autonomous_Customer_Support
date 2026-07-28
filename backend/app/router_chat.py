@@ -1,10 +1,13 @@
 import time
 import datetime
+import random
+import difflib
+import logging
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.models import User, Conversation, Message, Ticket, KBDocument
+from app.models import User, Conversation, Message, Ticket, KBDocument, KBChunk
 from app.schemas import (
     ConversationResponse,
     MessageCreateRequest,
@@ -13,10 +16,29 @@ from app.schemas import (
     FeedbackRequest
 )
 from app.auth import get_current_user
-from app.intent import classify_intent, should_escalate
+from app.intent import classify_intent, should_escalate, detect_anger_frustration
 from app.rag import rag_engine
 from app.llm import get_llm_provider
 from app.config import settings
+
+logger = logging.getLogger(__name__)
+
+def calculate_similarity(s1: str, s2: str) -> float:
+    return difflib.SequenceMatcher(None, s1.lower(), s2.lower()).ratio()
+
+def is_too_similar_to_history(response: str, past_responses: List[str], threshold: float = 0.75) -> bool:
+    for past in past_responses:
+        if calculate_similarity(response, past) > threshold:
+            return True
+    return False
+
+ESCALATION_MESSAGES = [
+    "I want to make sure your issue is resolved correctly. I am connecting you with a support specialist right now to help you further.",
+    "To give you the most accurate assistance, I've escalated this conversation to a human support agent who will review this shortly.",
+    "This seems to require a closer look by our team. I have opened a support ticket and handed this over to a support representative.",
+    "I understand this is important. I've automatically escalated this chat to our human support team for immediate priority handling.",
+    "I'm looping in a human support specialist to assist you with this directly. They will be with you shortly."
+]
 
 router = APIRouter(prefix="/chat", tags=["Chat"])
 
@@ -75,11 +97,12 @@ async def send_message(
 
     # 2. Intent Detection
     intent, intent_confidence = classify_intent(req.content)
+    is_angry = detect_anger_frustration(req.content)
 
     # 3. RAG Retrieval
     kb_doc_count = db.query(KBDocument).count()
     rag_results, top_rag_score = rag_engine.search(db, req.content, top_k=3) if kb_doc_count > 0 else ([], 0.0)
-    has_rag_context = len(rag_results) > 0 and top_rag_score >= 0.05
+    has_rag_context = len(rag_results) > 0 and top_rag_score >= settings.RAG_CONFIDENCE_THRESHOLD
 
     # 4. Auto-escalation Evaluation
     is_escalated, escalation_reason = should_escalate(
@@ -87,7 +110,8 @@ async def send_message(
         intent_confidence=intent_confidence,
         rag_score=top_rag_score,
         rag_threshold=settings.RAG_CONFIDENCE_THRESHOLD,
-        has_kb_docs=(kb_doc_count > 0)
+        has_kb_docs=(kb_doc_count > 0),
+        is_angry=is_angry
     )
 
     if is_escalated:
@@ -111,10 +135,15 @@ async def send_message(
             )
             db.add(new_ticket)
 
-    # 5. Format grounding context for LLM
+    # 5. Format grounding context for LLM with source document filename citations
     context_str = None
     if has_rag_context:
-        context_str = "\n\n".join([f"- {r['content']}" for r in rag_results])
+        formatted_chunks = []
+        for r in rag_results:
+            chunk = db.query(KBChunk).filter(KBChunk.id == r["chunk_id"]).first()
+            filename = chunk.document.filename if chunk and chunk.document else f"Chunk-{r['chunk_id']}"
+            formatted_chunks.append(f"[Source: {filename}] (Relevance Score: {r['score']}):\n{r['content']}")
+        context_str = "\n\n".join(formatted_chunks)
 
     # 6. Retrieve message history for LLM prompt context
     past_messages = (
@@ -126,15 +155,38 @@ async def send_message(
     history_payload = [{"role": m.role, "content": m.content} for m in past_messages]
     history_payload.append({"role": "user", "content": req.content})
 
-    # 7. Generate bot response via LLM provider
-    provider = get_llm_provider()
-    bot_reply_content = await provider.generate_response(
-        messages=history_payload,
-        context=context_str,
-        intent=intent,
-        is_escalated=is_escalated,
-        escalation_reason=escalation_reason
-    )
+    # 7. Generate bot response via LLM provider or skip if escalated
+    if is_escalated:
+        bot_reply_content = random.choice(ESCALATION_MESSAGES)
+        logger.info(f"Skipping LLM generation due to auto-escalation: {escalation_reason}")
+    else:
+        provider = get_llm_provider()
+        bot_reply_content = await provider.generate_response(
+            messages=history_payload,
+            context=context_str,
+            intent=intent,
+            is_escalated=is_escalated,
+            escalation_reason=escalation_reason
+        )
+
+        # Anti-repetition comparison guard
+        past_bot_contents = [m.content for m in past_messages if m.role == "assistant"]
+        max_attempts = 3
+        attempt = 1
+        while attempt < max_attempts and is_too_similar_to_history(bot_reply_content, past_bot_contents):
+            logger.info(f"Generated response too similar to history. Attempt {attempt} to rephrase...")
+            rephrase_history = history_payload + [
+                {"role": "assistant", "content": bot_reply_content},
+                {"role": "user", "content": "Please rephrase your previous response to vary the wording and avoid repeating yourself."}
+            ]
+            bot_reply_content = await provider.generate_response(
+                messages=rephrase_history,
+                context=context_str,
+                intent=intent,
+                is_escalated=is_escalated,
+                escalation_reason=escalation_reason
+            )
+            attempt += 1
 
     elapsed_ms = int((time.time() - start_time) * 1000)
 
@@ -162,6 +214,13 @@ async def send_message(
         response_time_ms=elapsed_ms
     )
     db.add(bot_msg)
+
+    # Log retrieval score and latency metrics for debugging
+    logger.info(
+        f"Response generated | User: {current_user.email} | Intent: {intent} (conf: {intent_confidence}) | "
+        f"RAG Grounded: {has_rag_context} | Retrieval Score: {top_rag_score} | Escalated: {is_escalated} | "
+        f"Response Latency: {elapsed_ms}ms"
+    )
 
     conv.updated_at = datetime.datetime.utcnow()
     db.commit()
