@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: autonomous-support-copilot-backend
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true
+      - key: GOOGLE_CLIENT_ID
+        value: 1076748850806-5ad41n5ncdkihpg742i37r7t66nt8iln.apps.googleusercontent.com
+      - key: FRONTEND_URL
+        value: https://autonomous-customer-support-copilot.netlify.app
+    plan: free
