@@ -10,7 +10,7 @@ import { ChatPage } from './pages/ChatPage';
 import { AdminDashboard } from './pages/AdminDashboard';
 import { AdminKBPage } from './pages/AdminKBPage';
 
-const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || "1076748850806-5ad41n5ncdkihpg742i37r7t66nt8iln.apps.googleusercontent.com";
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || "423149665404-b9bp7ruhjgind0avu27k49pb9eu3fja5.apps.googleusercontent.com";
 
 function App() {
   return (
